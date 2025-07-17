@@ -7,6 +7,9 @@ import { SlotMachine } from '@/components/SlotMachine';
 import { getBallCountsByValue } from '@/utils/ballUtils';
 import { Ball } from '@/types';
 import * as Haptics from 'expo-haptics';
+import StreakCounter from '@/components/StreakCounter';
+import ErrorBoundary from '@/components/ErrorBoundary';
+import { useRouter } from 'expo-router';
 
 export default function HomeScreen() {
   const { gameState, addBallToToday, decrementSpins, removeBallFromToday, moveBallToLongTerm } = useGameState();
@@ -16,6 +19,7 @@ export default function HomeScreen() {
   const [showTodayBalls, setShowTodayBalls] = useState(false);
   const [selectedTodayBall, setSelectedTodayBall] = useState<Ball | null>(null);
   const [showTodayBallModal, setShowTodayBallModal] = useState(false);
+  const router = useRouter();
 
   const ballCounts = getBallCountsByValue(gameState.todayBalls);
 
@@ -80,12 +84,31 @@ export default function HomeScreen() {
       <StatusBar style="light" />
       
       <View style={styles.header}>
-        <View style={styles.counterContainer}>
-          <Text style={styles.counterIcon}>🔥</Text>
-          <Text style={styles.counterText}>
-            {gameState.longTermCounter} / {gameState.longTermGoal}
-          </Text>
-        </View>
+        <ErrorBoundary
+          fallback={
+            <TouchableOpacity 
+              style={styles.counterContainer}
+              onPress={() => router.push('/(tabs)/jar')}
+            >
+              <View style={styles.fallbackCounter}>
+                <Text style={styles.fallbackCounterText}>
+                  {gameState.longTermCounter} / {gameState.longTermGoal}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          }
+        >
+          <TouchableOpacity 
+            style={styles.counterContainer}
+            onPress={() => router.push('/(tabs)/jar')}
+          >
+            <StreakCounter 
+              count={gameState.longTermCounter} 
+              goal={gameState.longTermGoal} 
+              onPress={() => router.push('/(tabs)/jar')}
+            />
+          </TouchableOpacity>
+        </ErrorBoundary>
         <TouchableOpacity style={styles.menuButton}>
           <Menu size={24} color="white" />
         </TouchableOpacity>
@@ -94,9 +117,21 @@ export default function HomeScreen() {
       <View style={styles.content}>
         <View style={styles.spinContainer}>
           <View style={styles.spinBox}>
-            <Text style={styles.spinsRemaining}>{gameState.spinsRemaining}</Text>
+            <View style={styles.spinTopContainer}>
+              <Text style={styles.spinsRemaining}>{gameState.spinsRemaining}</Text>
+            </View>
             
-            <SlotMachine onSpinComplete={handleSpinComplete} isSpinning={isSpinning} />
+            <View style={styles.spinMiddleContainer}>
+              <SlotMachine 
+                onSpinComplete={handleSpinComplete} 
+                isSpinning={isSpinning} 
+                balls={[
+                  { id: 'slot-1', minutes: 5, color: '#41DBD8' },
+                  { id: 'slot-2', minutes: 10, color: '#FFB800' },
+                  { id: 'slot-3', minutes: 20, color: '#F85180' }
+                ]}
+              />
+            </View>
             
             <TouchableOpacity
               style={[styles.spinButton, gameState.spinsRemaining <= 0 && styles.spinButtonDisabled]}
@@ -281,9 +316,17 @@ const styles = StyleSheet.create({
     marginTop: 60,
     marginBottom: 30,
   },
+  spinTopContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  spinMiddleContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
   spinBox: {
     backgroundColor: '#2F307A',
-    borderRadius: 20,
+    borderRadius: 16,
     padding: 20,
     alignItems: 'center',
     width: 320,
@@ -304,7 +347,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFCD4D',
     paddingHorizontal: 60,
     paddingVertical: 15,
-    borderRadius: 25,
+    borderRadius: 7,
+    borderTopWidth: 3,
+    borderTopColor: 'rgba(248, 179, 0, 1)',
+    borderBottomWidth: 3,
+    borderBottomColor: 'rgba(255, 226, 153, 1)',
     width: '100%',
     alignItems: 'center',
     marginTop: 20,
@@ -318,12 +365,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   todayButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 25,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    paddingHorizontal: 24,
+    paddingVertical: 4,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(108, 110, 198, 0.5)',
     marginBottom: 20,
     flexDirection: 'row',
     alignItems: 'center',
@@ -394,6 +441,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  fallbackCounter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  fallbackCounterText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   timeCard: {
     backgroundColor: 'white',

@@ -6,19 +6,33 @@ import { ArrowLeft, RotateCcw } from 'lucide-react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useGameState } from '@/hooks/useGameState';
 import { BallJar } from '@/components/BallJar';
+import FallbackJar from '@/components/FallbackJar';
+import ErrorBoundary from '@/components/ErrorBoundary';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
 
 export default function JarScreen() {
   const { gameState } = useGameState();
+  const router = useRouter();
+  const [retryKey, setRetryKey] = useState(0);
+
+  const handleRetry = () => {
+    // Increment the key to force a re-render of the BallJar component
+    setRetryKey(prevKey => prevKey + 1);
+  };
 
   return (
     <GestureHandlerRootView style={styles.container}>
       <StatusBar style="light" />
       <LinearGradient
         colors={['#667eea', '#764ba2']}
-        style={styles.gradient}
+        style={{ flex: 1 }}
       >
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
             <ArrowLeft size={24} color="white" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Long-Term Jar</Text>
@@ -36,7 +50,17 @@ export default function JarScreen() {
 
         <View style={styles.content}>
           <View style={styles.jarContainer}>
-            <BallJar balls={gameState.longTermBalls} />
+            <ErrorBoundary
+              fallback={
+                <FallbackJar 
+                  balls={gameState.longTermBalls} 
+                  onRetry={handleRetry} 
+                />
+              }
+              onReset={handleRetry}
+            >
+              <BallJar key={retryKey} balls={gameState.longTermBalls} />
+            </ErrorBoundary>
           </View>
           
           <View style={styles.instructions}>
@@ -57,6 +81,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#3D3F9E',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: 'white',
+    fontSize: 16,
+    textAlign: 'center',
   },
   header: {
     flexDirection: 'row',

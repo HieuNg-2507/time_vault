@@ -1,9 +1,10 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Switch, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Switch, ScrollView, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
-import { Shield, Bell, Smartphone, CircleHelp as HelpCircle, LogOut } from 'lucide-react-native';
+import { Shield, Bell, Smartphone, CircleHelp as HelpCircle, LogOut, Trash2 } from 'lucide-react-native';
 import { useGameState } from '@/hooks/useGameState';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SettingsScreen() {
   const { gameState, resetDailySpins } = useGameState();
@@ -76,6 +77,38 @@ export default function SettingsScreen() {
               </View>
               <Text style={styles.settingValue}>Reset</Text>
             </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.settingItem} 
+              onPress={() => {
+                Alert.alert(
+                  "Clear All Data",
+                  "This will reset all your game data. Are you sure?",
+                  [
+                    {
+                      text: "Cancel",
+                      style: "cancel"
+                    },
+                    { 
+                      text: "Yes", 
+                      onPress: async () => {
+                        try {
+                          await AsyncStorage.clear();
+                          Alert.alert("Success", "All data cleared. Restart the app to see changes.");
+                        } catch (e) {
+                          Alert.alert("Error", "Failed to clear data.");
+                        }
+                      }
+                    }
+                  ]
+                );
+              }}
+            >
+              <View style={styles.settingLeft}>
+                <Trash2 size={20} color="white" />
+                <Text style={styles.settingText}>Clear All Data</Text>
+              </View>
+              <Text style={styles.settingValue}>Reset</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.section}>
@@ -103,6 +136,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#3D3F9E',
+  },
+  gradient: {
+    flex: 1,
   },
   header: {
     paddingHorizontal: 20,

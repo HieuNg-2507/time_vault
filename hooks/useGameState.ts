@@ -99,7 +99,13 @@ export const useGameState = () => {
     const ball = gameState.todayBalls.find(b => b.id === ballId);
     if (!ball) return;
 
-    const newLongTermBalls = [...gameState.longTermBalls, ball];
+    // Create a new ball with a unique ID using 'lt' prefix and timestamp
+    const uniqueBall = {
+      ...ball,
+      id: `lt_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+    };
+
+    const newLongTermBalls = [...gameState.longTermBalls, uniqueBall];
     const newLongTermCounter = newLongTermBalls.reduce((sum, b) => sum + b.minutes, 0);
     const newLongTermGoal = calculateNextGoal(newLongTermCounter);
 

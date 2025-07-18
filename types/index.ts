@@ -6,6 +6,7 @@ export interface Ball {
   y?: number;
   vx?: number;
   vy?: number;
+  radius?: number;
 }
 
 export interface GameState {

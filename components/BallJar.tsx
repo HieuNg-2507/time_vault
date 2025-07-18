@@ -1,367 +1,267 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Dimensions, Text } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  runOnJS,
-  useDerivedValue,
-} from 'react-native-reanimated';
-import { Accelerometer, AccelerometerMeasurement } from 'expo-sensors';
+import { Accelerometer } from 'expo-sensors';
 import { Ball } from '@/types';
-import StorageBall from './StorageBall'; // Use StorageBall
+import StorageBall from './StorageBall';
 import { theme } from '@/styles/theme';
-
-// Define a type for the subscription object
-interface SensorSubscription {
-  remove: () => void;
-}
+import { usePhysics } from '@/hooks/usePhysics';
+import { generateBallId } from '@/utils/idGenerator';
 
 const { width, height } = Dimensions.get('window');
-const JAR_WIDTH = width * 0.8;
-const JAR_HEIGHT = height * 0.6;
-const BALL_RADIUS = theme.sizing.storageBall.small / 2; // Default radius, will be adjusted per ball
+
+// Update interval for accelerometer
+const UPDATE_INTERVAL = 16; // ~60fps
 
 interface BallJarProps {
   balls: Ball[];
-  onBallAdded?: (ball: Ball) => void;
+  counter?: number;
+  goal?: number;
 }
 
-interface PhysicsBall extends Ball {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  radius: number; // Store radius for collision detection
-  animatedX: Animated.SharedValue<number>;
-  animatedY: Animated.SharedValue<number>;
-}
+/**
+ * BallJar component that displays balls with physics simulation
+ */
+const BallJar: React.FC<BallJarProps> = ({ balls, counter = 0, goal = 1000 }) => {
+  // Physics configuration
+  const physicsConfig = {
+    gravity: { x: 0, y: 0.2 },
+    friction: 0.95, // Slightly reduced friction for smoother movement
+    bounce: 0.7,    // Reduced bounce for less bouncy balls
+    collisionDamping: 0.3 // Reduced damping for less separation between balls
+  };
 
-const GRAVITY_ACCELERATION = 0.5; // Adjusted gravity
-const FRICTION_FACTOR = 0.98;
-const TILT_SENSITIVITY = 0.05; // Sensitivity for accelerometer data
+  // Use the physics hook
+  const {
+    physicsState,
+    addBall,
+    removeBall,
+    updateConfig
+  } = usePhysics([], physicsConfig);
 
-export const BallJar: React.FC<BallJarProps> = ({ balls, onBallAdded }) => {
-  // Create shared values for all possible balls upfront
-  const sharedValues = useRef<{[key: string]: {x: Animated.SharedValue<number>, y: Animated.SharedValue<number>}}>({});
-  
-  // Initialize shared values for all balls if they don't exist yet
-  balls.forEach(ball => {
-    if (!sharedValues.current[ball.id]) {
-      const initialX = JAR_WIDTH / 2 + (Math.random() - 0.5) * (JAR_WIDTH * 0.5);
-      const initialY = JAR_HEIGHT - 50 - (Math.random() * 100);
-      sharedValues.current[ball.id] = {
-        x: useSharedValue(initialX),
-        y: useSharedValue(initialY)
-      };
-    }
-  });
-  
-  const [physicsBalls, setPhysicsBalls] = useState<PhysicsBall[]>([]);
+  // State for accelerometer data
   const [accelerometerData, setAccelerometerData] = useState({ x: 0, y: 0, z: 0 });
-  const [accelerometerAvailable, setAccelerometerAvailable] = useState<boolean | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [subscription, setSubscription] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Subscribe to Accelerometer
+  // Get the radius for a ball based on its minutes
+  const getBallRadius = (minutes: number) => {
+    if (minutes <= 5) {
+      return theme.sizing.storageBall.small / 2;
+    } else if (minutes <= 15) {
+      return theme.sizing.storageBall.medium / 2;
+    } else {
+      return theme.sizing.storageBall.large / 2;
+    }
+  };
+
+  // Subscribe to accelerometer
   useEffect(() => {
-    let subscription: SensorSubscription | undefined;
-    let isMounted = true;
-    
     const startAccelerometer = async () => {
       try {
-        // Set default values immediately to prevent errors
-        if (isMounted) {
-          setAccelerometerData({ x: 0, y: 0, z: 0 });
-        }
-        
-        // Check if Accelerometer is available
-        let isAvailableResult = false;
-        try {
-          isAvailableResult = await Accelerometer.isAvailableAsync();
-          if (isMounted) {
-            setAccelerometerAvailable(isAvailableResult);
-          }
-        } catch (availabilityError) {
-          console.error('Error checking accelerometer availability:', availabilityError);
-          if (isMounted) {
-            setAccelerometerAvailable(false);
-          }
-        }
-        
-        if (isAvailableResult && isMounted) {
-          try {
-            // Set update interval first
-            await Accelerometer.setUpdateInterval(16); // ~60 FPS
-            
-            try {
-              // Then subscribe to updates with a safe wrapper
-              const safeSetData = (data: AccelerometerMeasurement) => {
-                if (isMounted) {
-                  setAccelerometerData(data);
-                }
-              };
-              
-              subscription = Accelerometer.addListener(safeSetData);
-            } catch (subscriptionError) {
-              console.error('Error subscribing to accelerometer:', subscriptionError);
+        // Use a faster update interval for more responsive physics
+        Accelerometer.setUpdateInterval(UPDATE_INTERVAL);
+        const subscription = Accelerometer.addListener(data => {
+          setAccelerometerData(data);
+          
+          // Calculate gravity vector based on device orientation
+          // The accelerometer values represent the acceleration applied to the device
+          // When the device is flat, z = 1 (gravity pulling down on z-axis)
+          // When tilted, x and y values change based on tilt angle
+          
+          // Normalize the accelerometer data to create a more consistent gravity effect
+          const magnitude = Math.sqrt(data.x * data.x + data.y * data.y + data.z * data.z);
+          const normalizedX = data.x / magnitude;
+          const normalizedY = data.y / magnitude;
+          
+          // Scale factor controls the strength of gravity
+          const scaleFactor = 0.3;
+          
+          // Apply gravity based on device orientation
+          // For X: When phone tilts right (positive X in accelerometer), balls should move right (positive X in gravity)
+          // For Y: When phone tilts down (negative Y in accelerometer), balls should move down (positive Y in gravity)
+          // This matches the natural expectation of gravity
+          updateConfig({
+            gravity: {
+              x: normalizedX * scaleFactor, // Changed sign to match natural gravity direction
+              y: -normalizedY * scaleFactor  // Keep this as is, it's correct
             }
-          } catch (intervalError) {
-            console.error('Error setting accelerometer interval:', intervalError);
+          });
+          
+          // Log gravity values for debugging
+          if (Math.random() < 0.01) { // Only log occasionally to avoid flooding
+            console.log(`Gravity: x=${normalizedX * scaleFactor}, y=${-normalizedY * scaleFactor}`);
+            console.log(`Raw accelerometer: x=${data.x}, y=${data.y}, z=${data.z}`);
           }
-        } else {
-          console.log('Accelerometer is not available on this device or component unmounted');
-        }
+        });
+        setSubscription(subscription);
       } catch (error) {
-        console.error('Error in accelerometer setup:', error);
+        setError('Could not access the accelerometer. Please make sure your device supports this feature.');
       }
     };
-    
-    // Delay accelerometer initialization slightly to ensure component is fully mounted
-    const initTimer = setTimeout(() => {
-      startAccelerometer();
-    }, 100);
+
+    startAccelerometer();
 
     return () => {
-      isMounted = false;
-      clearTimeout(initTimer);
-      
-      try {
-        if (subscription) {
-          subscription.remove();
-        }
-      } catch (cleanupError) {
-        console.error('Error cleaning up accelerometer subscription:', cleanupError);
+      if (subscription) {
+        subscription.remove();
       }
     };
   }, []);
 
+  // Sync balls with physics engine
   useEffect(() => {
-    // Initialize physics balls with correct radii
-    const initBalls = balls.map((ball, index) => {
-      const radius = theme.sizing.storageBall[
-        ball.minutes <= 5 ? 'small' : ball.minutes <= 15 ? 'medium' : 'large'
-      ] / 2;
-      
-      // Use the pre-created shared values
-      const sharedValue = sharedValues.current[ball.id];
-      
-      return {
-        ...ball,
-        x: sharedValue.x.value,
-        y: sharedValue.y.value,
-        vx: (Math.random() - 0.5) * 2,
-        vy: 0,
-        radius: radius,
-        animatedX: sharedValue.x,
-        animatedY: sharedValue.y,
-      };
-    });
-    setPhysicsBalls(initBalls);
-  }, [balls]);
-
-  // Physics simulation loop
-  useEffect(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
+    // Only log when there's a change in ball count
+    if (balls.length !== physicsState.objects.length) {
+      console.log(`BallJar: Syncing ${balls.length} balls with physics engine`);
     }
+    
+    // Ensure each ball has a unique ID
+    const ballsWithIds = balls.map(ball => ({
+      ...ball,
+      id: ball.id || generateBallId('jar', ball.minutes)
+    }));
 
-    intervalRef.current = setInterval(() => {
-      setPhysicsBalls(prevBalls => {
-        let updatedBalls = prevBalls.map(ball => {
-          // Apply gravity
-          let newVy = ball.vy + GRAVITY_ACCELERATION;
-
-          // Apply tilt from accelerometer (map accelerometer values to tilt)
-          // Accelerometer x maps to tiltY, Accelerometer y maps to tiltX
-          // We invert y to make it intuitive (tilting phone forward = balls move up)
-          const tiltX = accelerometerData.y * TILT_SENSITIVITY;
-          const tiltY = -accelerometerData.x * TILT_SENSITIVITY;
-
-          let newVx = ball.vx + tiltX;
-          newVy += tiltY; // Add tilt to vertical velocity
-
-          let newX = ball.x + newVx;
-          let newY = ball.y + newVy;
-
-          // Boundary collision
-          if (newX - ball.radius < 0) { // Left boundary
-            newVx = -newVx * FRICTION_FACTOR;
-            newX = ball.radius;
-          } else if (newX + ball.radius > JAR_WIDTH) { // Right boundary
-            newVx = -newVx * FRICTION_FACTOR;
-            newX = JAR_WIDTH - ball.radius;
-          }
-
-          if (newY - ball.radius < 0) { // Top boundary (shouldn't happen with gravity)
-            newVy = -newVy * FRICTION_FACTOR;
-            newY = ball.radius;
-          } else if (newY + ball.radius > JAR_HEIGHT) { // Bottom boundary
-            newVy = -newVy * FRICTION_FACTOR * 0.6; // Less bounce on bottom
-            newY = JAR_HEIGHT - ball.radius;
-          }
-
-          // Apply friction
-          newVx *= FRICTION_FACTOR;
-          newVy *= FRICTION_FACTOR;
-
-          // Update animated values
-          ball.animatedX.value = withSpring(newX, { damping: 20, stiffness: 300 });
-          ball.animatedY.value = withSpring(newY, { damping: 20, stiffness: 300 });
-
-          return {
-            ...ball,
-            x: newX,
-            y: newY,
-            vx: newVx,
-            vy: newVy,
-          };
-        });
-
-        // Ball-to-ball collision detection and response
-        for (let i = 0; i < updatedBalls.length; i++) {
-          for (let j = i + 1; j < updatedBalls.length; j++) {
-            const ballA = updatedBalls[i];
-            const ballB = updatedBalls[j];
-
-            const dx = ballB.x - ballA.x;
-            const dy = ballB.y - ballA.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            const minDistance = ballA.radius + ballB.radius;
-
-            if (distance < minDistance) {
-              // Collision detected
-              const overlap = minDistance - distance;
-              const angle = Math.atan2(dy, dx);
-
-              // Resolve overlap (push balls apart)
-              const pushX = (overlap / 2) * Math.cos(angle);
-              const pushY = (overlap / 2) * Math.sin(angle);
-
-              ballA.x -= pushX;
-              ballA.y -= pushY;
-              ballB.x += pushX;
-              ballB.y += pushY;
-
-              // Calculate new velocities (simplified elastic collision)
-              const normalX = dx / distance;
-              const normalY = dy / distance;
-
-              const relVelX = ballA.vx - ballB.vx;
-              const relVelY = ballA.vy - ballB.vy;
-
-              const velocityAlongNormal = relVelX * normalX + relVelY * normalY;
-
-              // Do not resolve if velocities are separating
-              if (velocityAlongNormal > 0) continue;
-
-              const impulse = (2 * velocityAlongNormal) / (1 + 1); // Assuming equal mass
-
-              ballA.vx -= impulse * normalX;
-              ballA.vy -= impulse * normalY;
-              ballB.vx += impulse * normalX;
-              ballB.vy += impulse * normalY;
-            }
-          }
-        }
-
-        // Update animated values after collision resolution
-        updatedBalls.forEach(ball => {
-          ball.animatedX.value = withSpring(ball.x, { damping: 20, stiffness: 300 });
-          ball.animatedY.value = withSpring(ball.y, { damping: 20, stiffness: 300 });
-        });
-
-        return updatedBalls;
-      });
-    }, 16);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+    // Remove balls that are no longer in the list
+    const currentBallIds = new Set(ballsWithIds.map(b => b.id));
+    physicsState.objects.forEach(obj => {
+      if (!currentBallIds.has(obj.id)) {
+        removeBall(obj.id);
       }
-    };
-  }, [accelerometerData, balls]); // Re-run if accelerometer data or balls change
+    });
 
-  const animatedStyle = (ball: PhysicsBall) => useAnimatedStyle(() => {
-    return {
-      position: 'absolute',
-      width: ball.radius * 2,
-      height: ball.radius * 2,
-      transform: [
-        { translateX: ball.animatedX.value - ball.radius },
-        { translateY: ball.animatedY.value - ball.radius },
-      ],
-    };
-  });
+    // Add new balls with random positions
+    const existingBallIds = new Set(physicsState.objects.map(obj => obj.id));
+    ballsWithIds.forEach(ball => {
+      if (!existingBallIds.has(ball.id)) {
+        // Generate random position within the visible area, but avoid the top-left corner
+        // where balls tend to get stuck
+        const { width, height } = Dimensions.get('window');
+        const padding = 60; // Increased padding to keep away from edges
+        
+        // Avoid the top-left corner by ensuring x and y are not both small
+        let randomX, randomY;
+        do {
+          randomX = padding + Math.random() * (width - padding * 2);
+          randomY = padding + Math.random() * (height - padding * 2);
+        } while (randomX < width * 0.3 && randomY < height * 0.3);
+        
+        // Add ball with random position
+        addBall(ball, randomX, randomY);
+      }
+    });
+  }, [balls, physicsState.objects.length, addBall, removeBall]);
+
+  // Update counter when balls change and ensure physics config is appropriate
+  useEffect(() => {
+    // This ensures the counter is always in sync with the actual balls
+    // Especially important when balls are added to the long-term jar
+    const ballsTotal = balls.reduce((sum, ball) => sum + ball.minutes, 0);
+    
+    // Adjust physics parameters based on number of balls
+    // More balls = less damping to prevent clustering
+    if (balls.length > 10) {
+      updateConfig({
+        collisionDamping: 0.1, // Reduced damping for more balls
+        friction: 0.97,      // Slightly increased friction for stability
+        bounce: 0.5         // Reduced bounce for more stability with many balls
+      });
+    } else {
+      updateConfig({
+        collisionDamping: 0.3, // Default damping for fewer balls
+        friction: 0.95,      // Default friction
+        bounce: 0.7         // Default bounce
+      });
+    }
+  }, [balls, counter, updateConfig]);
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+      </View>
+    );
+  }
 
   return (
-    <Animated.View style={styles.container}>
-      <View style={styles.jar}>
-        {physicsBalls.length === 0 ? (
-          <Text style={styles.emptyText}>No balls in storage yet</Text>
-        ) : (
-          physicsBalls.map((ball) => (
-            <Animated.View key={ball.id} style={animatedStyle(ball)}>
-              <StorageBall minutes={ball.minutes} />
-            </Animated.View>
-          ))
-        )}
-        
-        {accelerometerAvailable === false && (
-          <View style={styles.accelerometerWarning}>
-            <Text style={styles.accelerometerWarningText}>
-              Accelerometer not available. Balls will not respond to device tilt.
-            </Text>
-          </View>
-        )}
+    <View style={styles.container}>
+      {/* Counter display */}
+      <View style={styles.counterContainer}>
+        <Text style={styles.counterValue}>{counter}</Text>
+        <Text style={styles.counterSeparator}>/</Text>
+        <Text style={styles.counterGoal}>{goal}</Text>
       </View>
-      <Text style={styles.debugText}>
-        Balls: {physicsBalls.length} | Tilt: {accelerometerData.x.toFixed(2)}, {accelerometerData.y.toFixed(2)}
-        {accelerometerAvailable === false ? ' (Accelerometer not available)' : ''}
-      </Text>
-    </Animated.View>
+      
+      {/* Balls */}
+      {physicsState.objects.map((obj) => {
+        const ball = obj.data as Ball;
+        return (
+          <View
+            key={obj.id}
+            style={[
+              styles.ballContainer,
+              {
+                width: obj.radius * 2,
+                height: obj.radius * 2,
+                left: obj.position.x - obj.radius,
+                top: obj.position.y - obj.radius,
+              },
+            ]}
+          >
+            <StorageBall minutes={ball.minutes} />
+          </View>
+        );
+      })}
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
+  },
+  ballContainer: {
+    position: 'absolute',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  accelerometerWarning: {
-    position: 'absolute',
-    bottom: 20,
-    left: 10,
-    right: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    padding: 10,
-    borderRadius: 8,
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
-  accelerometerWarningText: {
+  errorText: {
     color: 'white',
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  jar: {
-    width: JAR_WIDTH,
-    height: JAR_HEIGHT,
-    borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 20,
-    borderTopWidth: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    position: 'relative',
-    overflow: 'hidden', // Ensure balls don't render outside the jar
-  },
-  emptyText: {
-    color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 16,
     textAlign: 'center',
-    marginTop: JAR_HEIGHT / 2 - 10,
   },
-  debugText: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 12,
-    marginTop: 10,
+  counterContainer: {
+    position: 'absolute',
+    top: height / 3 - 40, // Positioned at about 1/3 from the top
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  counterValue: {
+    fontFamily: 'Outfit-SemiBold',
+    fontSize: 72,
+    color: 'rgba(213, 214, 239, 0.5)', // D5D6EF with 50% opacity
+  },
+  counterSeparator: {
+    fontFamily: 'Outfit-SemiBold',
+    fontSize: 72,
+    color: 'rgba(213, 214, 239, 0.3)', // D5D6EF with 30% opacity
+    marginHorizontal: 4,
+  },
+  counterGoal: {
+    fontFamily: 'Outfit-SemiBold',
+    fontSize: 72,
+    color: 'rgba(213, 214, 239, 0.3)', // D5D6EF with 30% opacity
   },
 });
+
+export default BallJar;

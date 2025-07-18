@@ -1,3 +1,4 @@
+import React from 'react';
 import { Tabs } from 'expo-router';
 import { Chrome as Home, Calendar, Archive, Settings } from 'lucide-react-native';
 
@@ -7,12 +8,8 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#4A5568',
-          borderTopColor: 'rgba(255, 255, 255, 0.1)',
-          borderTopWidth: 1,
-        },
-        tabBarActiveTintColor: '#FFD700',
-        tabBarInactiveTintColor: 'rgba(255, 255, 255, 0.6)',
+          display: 'none'
+        }
       }}>
       <Tabs.Screen
         name="index"

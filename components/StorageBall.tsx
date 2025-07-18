@@ -11,15 +11,15 @@ const StorageBall: React.FC<StorageBallProps> = ({ minutes }) => {
     let size, backgroundColor, borderColor;
 
     if (minutes <= 5) {
-      size = theme.sizing.storageBall.small;
+      size = theme.sizing.storageBall.small; // 28px
       backgroundColor = theme.colors.secondary[500];
       borderColor = theme.colors.secondary[600];
     } else if (minutes <= 15) {
-      size = theme.sizing.storageBall.medium;
+      size = theme.sizing.storageBall.medium; // 34px
       backgroundColor = theme.colors.territory1[500];
       borderColor = theme.colors.territory1[600];
     } else {
-      size = theme.sizing.storageBall.large;
+      size = theme.sizing.storageBall.large; // 40px
       backgroundColor = theme.colors.territory2[500];
       borderColor = theme.colors.territory2[600];
     }
@@ -30,7 +30,7 @@ const StorageBall: React.FC<StorageBallProps> = ({ minutes }) => {
       borderRadius: size / 2,
       backgroundColor,
       borderColor,
-      borderWidth: 1,
+      borderWidth: 1, // 1px border as specified
     };
   };
 
@@ -57,6 +57,7 @@ const styles = StyleSheet.create({
     color: theme.colors.shades.white,
     fontFamily: 'Outfit-Bold',
     fontSize: 12, // Font size is smaller for storage balls
+    textAlign: 'center',
   },
 });
 

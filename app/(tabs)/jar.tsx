@@ -1,78 +1,68 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import React, { useEffect } from 'react';
+import { View, TouchableOpacity, StyleSheet, BackHandler } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowLeft, RotateCcw } from 'lucide-react-native';
+import { ArrowLeft } from 'lucide-react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useGameState } from '@/hooks/useGameState';
-import { BallJar } from '@/components/BallJar';
-import FallbackJar from '@/components/FallbackJar';
-import ErrorBoundary from '@/components/ErrorBoundary';
+import { useGameContext } from '@/contexts/GameContext';
+import BallJar from '@/components/BallJar';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
 
 export default function JarScreen() {
-  const { gameState } = useGameState();
+  const { longTermBalls, getLongTermTotal, getLongTermGoal } = useGameContext();
   const router = useRouter();
-  const [retryKey, setRetryKey] = useState(0);
+  
+  // Force refresh of counter values when screen is displayed
+  useEffect(() => {
+    // This ensures the counter is always up-to-date when the jar screen is shown
+    const total = getLongTermTotal();
+    const goal = getLongTermGoal();
+    console.log(`JarScreen mounted - Total: ${total}, Goal: ${goal}`);
+    
+    // Set up an interval to periodically refresh the counter
+    // This helps ensure the counter stays in sync with any changes
+    const refreshInterval = setInterval(() => {
+      const updatedTotal = getLongTermTotal();
+      console.log(`JarScreen refresh - Total: ${updatedTotal}`);
+    }, 1000); // Check every second
+    
+    return () => {
+      clearInterval(refreshInterval);
+    };
+  }, [getLongTermTotal, getLongTermGoal, longTermBalls]);
 
-  const handleRetry = () => {
-    // Increment the key to force a re-render of the BallJar component
-    setRetryKey(prevKey => prevKey + 1);
-  };
+
+  // Handle back button press
+  useEffect(() => {
+    const backAction = () => {
+      router.back();
+      return true;
+    };
+
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      backAction
+    );
+
+    return () => backHandler.remove();
+  }, [router]);
 
   return (
     <GestureHandlerRootView style={styles.container}>
-      <StatusBar style="light" />
-      <LinearGradient
-        colors={['#667eea', '#764ba2']}
-        style={{ flex: 1 }}
-      >
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <ArrowLeft size={24} color="white" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Long-Term Jar</Text>
-          <TouchableOpacity style={styles.resetButton}>
-            <RotateCcw size={20} color="white" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.counterContainer}>
-          <Text style={styles.counterIcon}>🔥</Text>
-          <Text style={styles.counterText}>
-            {gameState.longTermCounter} / {gameState.longTermGoal}
-          </Text>
-        </View>
-
-        <View style={styles.content}>
-          <View style={styles.jarContainer}>
-            <ErrorBoundary
-              fallback={
-                <FallbackJar 
-                  balls={gameState.longTermBalls} 
-                  onRetry={handleRetry} 
-                />
-              }
-              onReset={handleRetry}
-            >
-              <BallJar key={retryKey} balls={gameState.longTermBalls} />
-            </ErrorBoundary>
-          </View>
-          
-          <View style={styles.instructions}>
-            <Text style={styles.instructionText}>
-              Tilt your device to move the balls around!
-            </Text>
-            <Text style={styles.instructionSubtext}>
-              {gameState.longTermBalls.length} balls collected
-            </Text>
-          </View>
-        </View>
-      </LinearGradient>
+      <StatusBar style="light" hidden />
+      <View style={styles.fullScreenContainer}>
+        <BallJar 
+          balls={longTermBalls} 
+          counter={getLongTermTotal()}
+          goal={getLongTermGoal()}
+        />
+        
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <ArrowLeft size={24} color="white" />
+        </TouchableOpacity>
+      </View>
     </GestureHandlerRootView>
   );
 }
@@ -82,73 +72,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#3D3F9E',
   },
-  errorContainer: {
+  fullScreenContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  errorText: {
-    color: 'white',
-    fontSize: 16,
-    textAlign: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
+    position: 'relative',
   },
   backButton: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
     padding: 8,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  resetButton: {
-    padding: 8,
-  },
-  counterContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  counterIcon: {
-    fontSize: 24,
-    marginRight: 10,
-  },
-  counterText: {
-    color: 'white',
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  jarContainer: {
-    flex: 1,
-    marginBottom: 20,
-  },
-  instructions: {
-    alignItems: 'center',
-    paddingBottom: 30,
-  },
-  instructionText: {
-    color: 'white',
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 5,
-  },
-  instructionSubtext: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 14,
-    textAlign: 'center',
+    zIndex: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: 20,
   },
 });

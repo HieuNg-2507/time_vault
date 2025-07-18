@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Alert, ScrollView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Menu, X, ChevronDown, ChevronUp } from 'lucide-react-native';
-import { useGameState } from '@/hooks/useGameState';
+import { useGameContext } from '@/contexts/GameContext';
 import { SlotMachine } from '@/components/SlotMachine';
 import { getBallCountsByValue } from '@/utils/ballUtils';
 import { Ball } from '@/types';
@@ -12,8 +12,18 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { useRouter } from 'expo-router';
 
 export default function HomeScreen() {
-  const { gameState, addBallToToday, decrementSpins, removeBallFromToday, moveBallToLongTerm } = useGameState();
-  const [isSpinning, setIsSpinning] = useState(false);
+  const { 
+    todayBalls, 
+    longTermBalls,
+    addBallToToday, 
+    removeBallFromToday, 
+    moveBallToLongTerm,
+    getLongTermTotal,
+    getLongTermGoal,
+    spinsRemaining,
+    decrementSpins
+  } = useGameContext();
+  
   const [currentBall, setCurrentBall] = useState<Ball | null>(null);
   const [showBallModal, setShowBallModal] = useState(false);
   const [showTodayBalls, setShowTodayBalls] = useState(false);
@@ -21,23 +31,14 @@ export default function HomeScreen() {
   const [showTodayBallModal, setShowTodayBallModal] = useState(false);
   const router = useRouter();
 
-  const ballCounts = getBallCountsByValue(gameState.todayBalls);
-
-  const handleSpin = async () => {
-    if (gameState.spinsRemaining <= 0) {
-      Alert.alert('No Spins Left', 'You have no spins remaining for today.');
-      return;
-    }
-
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsSpinning(true);
-    decrementSpins();
-  };
+  const ballCounts = getBallCountsByValue(todayBalls);
 
   const handleSpinComplete = (ball: Ball) => {
-    setIsSpinning(false);
-    setCurrentBall(ball);
-    setShowBallModal(true);
+    // Add a small delay before showing the modal to ensure animations are complete
+    setTimeout(() => {
+      setCurrentBall(ball);
+      setShowBallModal(true);
+    }, 300);
   };
 
   const handleBallChoice = (choice: 'store' | 'use') => {
@@ -67,8 +68,40 @@ export default function HomeScreen() {
       removeBallFromToday(selectedTodayBall.id);
       Alert.alert('App Unlocked', `You can now use blocked apps for ${selectedTodayBall.minutes} minutes.`);
     } else {
-      moveBallToLongTerm(selectedTodayBall.id);
-      Alert.alert('Ball Stored', `${selectedTodayBall.minutes} minute ball moved to Long-Term Jar.`);
+      // Store the ball ID and minutes before moving it
+      const ballId = selectedTodayBall.id;
+      const ballMinutes = selectedTodayBall.minutes;
+      
+      console.log(`Moving ball to long-term jar: ID=${ballId}, Minutes=${ballMinutes}`);
+      
+      // Move the ball to long-term jar
+      moveBallToLongTerm(ballId);
+      
+      // Show alert with navigation option
+      Alert.alert(
+        'Ball Stored', 
+        `${ballMinutes} minute ball moved to Long-Term Jar.`,
+        [
+          { 
+            text: 'View Jar', 
+            onPress: () => {
+              // Close the modal first
+              setShowTodayBallModal(false);
+              setSelectedTodayBall(null);
+              // Navigate to jar screen
+              setTimeout(() => router.push('/(tabs)/jar'), 300);
+            }
+          },
+          { 
+            text: 'OK', 
+            onPress: () => {
+              setShowTodayBallModal(false);
+              setSelectedTodayBall(null);
+            }
+          }
+        ]
+      );
+      return; // Return early since we're handling modal closing in the alert buttons
     }
 
     setShowTodayBallModal(false);
@@ -92,7 +125,7 @@ export default function HomeScreen() {
             >
               <View style={styles.fallbackCounter}>
                 <Text style={styles.fallbackCounterText}>
-                  {gameState.longTermCounter} / {gameState.longTermGoal}
+                  {getLongTermTotal()} / {getLongTermGoal()}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -103,8 +136,8 @@ export default function HomeScreen() {
             onPress={() => router.push('/(tabs)/jar')}
           >
             <StreakCounter 
-              count={gameState.longTermCounter} 
-              goal={gameState.longTermGoal} 
+              count={getLongTermTotal()} 
+              goal={getLongTermGoal()} 
               onPress={() => router.push('/(tabs)/jar')}
             />
           </TouchableOpacity>
@@ -118,13 +151,14 @@ export default function HomeScreen() {
         <View style={styles.spinContainer}>
           <View style={styles.spinBox}>
             <View style={styles.spinTopContainer}>
-              <Text style={styles.spinsRemaining}>{gameState.spinsRemaining}</Text>
+              <Text style={styles.spinsRemaining}>{spinsRemaining}</Text>
             </View>
             
             <View style={styles.spinMiddleContainer}>
               <SlotMachine 
-                onSpinComplete={handleSpinComplete} 
-                isSpinning={isSpinning} 
+                onSpinComplete={handleSpinComplete}
+                decrementSpins={decrementSpins}
+                spinsRemaining={spinsRemaining}
                 balls={[
                   { id: 'slot-1', minutes: 5, color: '#41DBD8' },
                   { id: 'slot-2', minutes: 10, color: '#FFB800' },
@@ -132,16 +166,6 @@ export default function HomeScreen() {
                 ]}
               />
             </View>
-            
-            <TouchableOpacity
-              style={[styles.spinButton, gameState.spinsRemaining <= 0 && styles.spinButtonDisabled]}
-              onPress={handleSpin}
-              disabled={gameState.spinsRemaining <= 0 || isSpinning}
-            >
-              <Text style={styles.spinButtonText}>
-                {isSpinning ? 'Spinning...' : 'Spin'}
-              </Text>
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -158,7 +182,7 @@ export default function HomeScreen() {
           <View style={styles.todayBallsContainer}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={styles.todayBallsRow}>
-                {gameState.todayBalls.map((ball) => (
+                {todayBalls.map((ball) => (
                   <TouchableOpacity
                     key={ball.id}
                     style={[styles.todayBall, { backgroundColor: ball.color }]}
@@ -203,7 +227,9 @@ export default function HomeScreen() {
           <View style={styles.timeCard}>
             <TouchableOpacity
               style={styles.closeButton}
-              onPress={() => setShowBallModal(false)}
+              onPress={() => {
+                setShowBallModal(false);
+              }}
             >
               <X size={24} color="#999" />
             </TouchableOpacity>
@@ -358,6 +384,9 @@ const styles = StyleSheet.create({
   },
   spinButtonDisabled: {
     backgroundColor: '#999',
+  },
+  spinButtonSpinning: {
+    backgroundColor: '#E0B846', // Slightly darker when spinning
   },
   spinButtonText: {
     color: '#333',
